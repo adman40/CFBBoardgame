@@ -4,6 +4,25 @@ import HomeScreen  from './screens/HomeScreen.jsx';
 import LobbyScreen from './screens/LobbyScreen.jsx';
 import GameScreen  from './screens/GameScreen.jsx';
 
+const SESSION_STORAGE_KEY = 'cfb_session';
+
+function loadStoredSession() {
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function storeSession(session) {
+  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearSession() {
+  window.localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
 export default function App() {
   const [screen, setScreen]       = useState('home');    // 'home' | 'lobby' | 'game'
   const [roomCode, setRoomCode]   = useState('');
@@ -11,18 +30,38 @@ export default function App() {
   const [players, setPlayers]     = useState([]);
   const [hostId, setHostId]       = useState('');
   const [gameState, setGameState] = useState(null);
+  const [restoreError, setRestoreError] = useState('');
+
+  const joinCodeFromUrl = new URLSearchParams(window.location.search).get('join')?.toUpperCase() || '';
 
   useEffect(() => {
-    socket.on('room_created', ({ roomCode: code, playerId: pid }) => {
+    function tryResumeSession() {
+      const saved = loadStoredSession();
+      if (!saved?.roomCode || !saved?.playerId || !saved?.reconnectToken) return;
+      socket.emit('resume_session', saved);
+    }
+
+    socket.on('connect', tryResumeSession);
+
+    socket.on('room_created', ({ roomCode: code, playerId: pid, playerName, reconnectToken, players: pl, hostId: hid }) => {
       setRoomCode(code);
       setPlayerId(pid);
-      setHostId(pid);
+      setPlayers(pl || []);
+      setHostId(hid || pid);
+      setGameState(null);
+      setRestoreError('');
+      storeSession({ roomCode: code, playerId: pid, playerName, reconnectToken });
       setScreen('lobby');
     });
 
-    socket.on('room_joined', ({ playerId: pid, roomCode: code }) => {
+    socket.on('room_joined', ({ playerId: pid, roomCode: code, playerName, reconnectToken, players: pl, hostId: hid }) => {
       setPlayerId(pid);
       setRoomCode(code);
+      setPlayers(pl || []);
+      setHostId(hid || '');
+      setGameState(null);
+      setRestoreError('');
+      storeSession({ roomCode: code, playerId: pid, playerName, reconnectToken });
       setScreen('lobby');
     });
 
@@ -40,22 +79,61 @@ export default function App() {
       setGameState(state);
     });
 
+    socket.on('session_resumed', ({ screen: restoredScreen, roomCode: code, playerId: pid, playerName, players: pl, hostId: hid, state }) => {
+      const saved = loadStoredSession();
+      storeSession({
+        roomCode: code,
+        playerId: pid,
+        playerName,
+        reconnectToken: saved?.reconnectToken,
+      });
+
+      setRoomCode(code);
+      setPlayerId(pid);
+      setRestoreError('');
+
+      if (restoredScreen === 'game') {
+        setGameState(state);
+        setScreen('game');
+      } else {
+        setPlayers(pl || []);
+        setHostId(hid || '');
+        setGameState(null);
+        setScreen('lobby');
+      }
+    });
+
     socket.on('error', ({ message }) => {
+      if (message === 'Session not found' || message === 'Room expired' || message === 'Room not found') {
+        clearSession();
+        setScreen('home');
+        setGameState(null);
+        setPlayers([]);
+        setHostId('');
+        setPlayerId('');
+        setRoomCode('');
+        setRestoreError(message);
+        return;
+      }
       alert(`Error: ${message}`);
     });
 
+    tryResumeSession();
+
     return () => {
+      socket.off('connect', tryResumeSession);
       socket.off('room_created');
       socket.off('room_joined');
       socket.off('room_updated');
       socket.off('game_started');
       socket.off('state_update');
+      socket.off('session_resumed');
       socket.off('error');
     };
   }, []);
 
   if (screen === 'home') {
-    return <HomeScreen />;
+    return <HomeScreen initialJoinCode={joinCodeFromUrl} initialName={loadStoredSession()?.playerName || ''} restoreError={restoreError} />;
   }
 
   if (screen === 'lobby') {

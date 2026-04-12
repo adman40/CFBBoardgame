@@ -1,73 +1,78 @@
-const express    = require('express');
-const http       = require('http');
+const express = require('express');
+const http = require('http');
 const { Server } = require('socket.io');
-const cors       = require('cors');
-const path       = require('path');
+const cors = require('cors');
+const path = require('path');
 
+const db = require('./db');
 const gm = require('./gameManager');
 const ge = require('./gameEngine');
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
-const io     = new Server(server, {
+const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
 });
 
 app.use(cors());
 app.use(express.json());
 
-// Serve the built React client in production
 const CLIENT_DIST = path.join(__dirname, '../client/dist');
 app.use(express.static(CLIENT_DIST));
 
-app.get('/healthz', (_req, res) => {
-  res.status(200).json({ ok: true });
+app.get('/healthz', async (_req, res) => {
+  try {
+    await db.checkHealth();
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    res.status(503).json({ ok: false, error: 'database_unavailable' });
+  }
 });
 
 const PORT = process.env.PORT || 3001;
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
 
 function broadcast(roomCode, event, data) {
   io.to(roomCode).emit(event, data);
 }
 
-function broadcastState(roomCode) {
-  const room = gm.getRoom(roomCode);
-  if (room?.state) {
-    io.to(roomCode).emit('state_update', room.state);
-    room.state.lastActivity = Date.now();
-  }
+function broadcastState(roomCode, state) {
+  io.to(roomCode).emit('state_update', state);
 }
 
 function emitError(socket, message, code = 'GENERIC') {
   socket.emit('error', { message, code });
 }
 
-function handleEngineResult(socket, roomCode, result) {
-  if (result.error) {
-    emitError(socket, result.error);
-    return false;
-  }
+function buildLeaderboard(state) {
+  return Object.values(state.players)
+    .map((player) => ({
+      id: player.id,
+      name: player.name,
+      tokenColor: player.tokenColor,
+      totalAssets: ge.calculateTotalAssets(state, player.id),
+      isActive: player.isActive,
+    }))
+    .sort((a, b) => b.totalAssets - a.totalAssets);
+}
 
-  // Emit any special pre-state events
-  for (const evt of (result.events || [])) {
+function emitEngineEvents(roomCode, events = []) {
+  for (const evt of events) {
     if (evt.type === 'card_drawn') {
       broadcast(roomCode, 'card_drawn', {
         deck: evt.deck,
         card: {
-          id:             evt.card.id,
-          title:          evt.card.title,
-          description:    evt.card.description,
+          id: evt.card.id,
+          title: evt.card.title,
+          description: evt.card.description,
           historicalNote: evt.card.historicalNote,
-          effectType:     evt.card.effect?.type,
+          effectType: evt.card.effect?.type,
         },
       });
     } else if (evt.type === 'auction_started') {
       broadcast(roomCode, 'auction_started', {
-        propertyId:   evt.propertyId,
+        propertyId: evt.propertyId,
         propertyData: evt.propertyData,
-        startingBid:  0,
+        startingBid: 0,
       });
     } else if (evt.type === 'auction_updated') {
       broadcast(roomCode, 'auction_updated', evt);
@@ -75,338 +80,333 @@ function handleEngineResult(socket, roomCode, result) {
       broadcast(roomCode, 'auction_ended', evt);
     }
   }
+}
 
-  // Handle bankruptcy if signaled
+async function runLockedGameAction(socket, roomCode, actionFn) {
+  const result = await gm.runGameAction(roomCode, socket.id, ({ room, state, playerId }) => {
+    const actionResult = actionFn({ room, state, playerId });
+    if (actionResult?.error) {
+      return actionResult;
+    }
+
+    if (actionResult?.bankruptPlayerId) {
+      actionResult.bankruptResult = ge.declareBankruptcy(
+        state,
+        actionResult.bankruptPlayerId,
+        actionResult.creditorId
+      );
+    }
+
+    return actionResult;
+  });
+
+  if (result.error) {
+    emitError(socket, result.error);
+    return null;
+  }
+
+  emitEngineEvents(roomCode, result.events);
+
   if (result.bankruptPlayerId) {
-    const bankruptResult = ge.declareBankruptcy(
-      gm.getRoom(roomCode).state,
-      result.bankruptPlayerId,
-      result.creditorId
-    );
     broadcast(roomCode, 'bankruptcy_declared', {
-      playerId:  result.bankruptPlayerId,
-      creditor:  result.creditorId || 'bank',
+      playerId: result.bankruptPlayerId,
+      creditor: result.creditorId || 'bank',
     });
-    if (bankruptResult.gameOver) {
+
+    if (result.bankruptResult?.gameOver) {
       broadcast(roomCode, 'game_over', {
-        winner:      bankruptResult.winner,
-        leaderboard: buildLeaderboard(gm.getRoom(roomCode).state),
+        winner: result.bankruptResult.winner,
+        leaderboard: buildLeaderboard(result.room.state),
       });
     }
   }
 
-  broadcastState(roomCode);
-  return true;
+  broadcastState(roomCode, result.room.state);
+  return result;
 }
-
-function buildLeaderboard(state) {
-  return Object.values(state.players)
-    .map(p => ({
-      id:         p.id,
-      name:       p.name,
-      tokenColor: p.tokenColor,
-      totalAssets: ge.calculateTotalAssets(state, p.id),
-      isActive:   p.isActive,
-    }))
-    .sort((a, b) => b.totalAssets - a.totalAssets);
-}
-
-// ─── socket events ────────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
   console.log(`[+] ${socket.id} connected`);
 
-  // ── LOBBY ──────────────────────────────────────────────────────────────────
+  function onAsync(eventName, handler) {
+    socket.on(eventName, (payload = {}) => {
+      Promise.resolve(handler(payload)).catch((error) => {
+        console.error(`Socket handler failed for ${eventName}:`, error);
+        emitError(socket, 'Server error', 'SERVER_ERROR');
+      });
+    });
+  }
 
-  socket.on('create_room', ({ playerName }) => {
+  onAsync('create_room', async ({ playerName }) => {
     if (!playerName?.trim()) return emitError(socket, 'Name is required');
-    const result = gm.createRoom(socket.id, playerName.trim());
+
+    const result = await gm.createRoom(socket.id, playerName.trim());
+    if (result.error) return emitError(socket, result.error);
+
     socket.join(result.roomCode);
-    socket.emit('room_created', { roomCode: result.roomCode, playerId: result.playerId });
+    socket.emit('room_created', {
+      roomCode: result.roomCode,
+      playerId: result.playerId,
+      playerName: result.playerName,
+      reconnectToken: result.reconnectToken,
+      players: result.players,
+      hostId: result.hostId,
+    });
     console.log(`[+] Room ${result.roomCode} created by ${playerName}`);
   });
 
-  socket.on('join_room', ({ roomCode, playerName }) => {
-    if (!roomCode || !playerName?.trim()) return emitError(socket, 'Room code and name required');
-    const result = gm.joinRoom(roomCode.toUpperCase(), socket.id, playerName.trim());
+  onAsync('join_room', async ({ roomCode, playerName }) => {
+    if (!roomCode || !playerName?.trim()) {
+      return emitError(socket, 'Room code and name required');
+    }
+
+    const normalizedRoomCode = roomCode.toUpperCase();
+    const result = await gm.joinRoom(normalizedRoomCode, socket.id, playerName.trim());
     if (result.error) return emitError(socket, result.error);
-    socket.join(roomCode.toUpperCase());
-    socket.emit('room_joined', { playerId: result.playerId, roomCode: roomCode.toUpperCase() });
-    broadcast(roomCode.toUpperCase(), 'room_updated', { players: result.players, hostId: result.hostId });
-    console.log(`[+] ${playerName} joined room ${roomCode}`);
+
+    socket.join(normalizedRoomCode);
+    socket.emit('room_joined', {
+      playerId: result.playerId,
+      roomCode: normalizedRoomCode,
+      playerName: result.playerName,
+      reconnectToken: result.reconnectToken,
+      players: result.players,
+      hostId: result.hostId,
+    });
+    broadcast(normalizedRoomCode, 'room_updated', {
+      players: result.players,
+      hostId: result.hostId,
+    });
+    console.log(`[+] ${playerName} joined room ${normalizedRoomCode}`);
   });
 
-  socket.on('start_game', ({ roomCode }) => {
-    const result = gm.startGame(roomCode, socket.id);
+  onAsync('start_game', async ({ roomCode }) => {
+    const result = await gm.startGame(roomCode, socket.id);
     if (result.error) return emitError(socket, result.error);
+
     broadcast(roomCode, 'game_started', result.state);
     console.log(`[+] Game started in room ${roomCode}`);
   });
 
-  // ── GAME ACTIONS ───────────────────────────────────────────────────────────
-
-  socket.on('roll_dice', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    if (!playerId) return emitError(socket, 'Not in this room');
-
-    const state = room.state;
-    if (state.playerOrder[state.currentPlayerIndex] !== playerId) {
-      return emitError(socket, 'Not your turn');
-    }
-    if (state.phase !== 'WAITING_FOR_ROLL' && state.phase !== 'WAITING_FOR_JAIL_DECISION') {
-      return emitError(socket, 'Cannot roll right now');
+  onAsync('resume_session', async ({ roomCode, playerId, reconnectToken }) => {
+    if (!roomCode || !playerId || !reconnectToken) {
+      return emitError(socket, 'Session details required');
     }
 
-    const result = ge.rollDiceAction(state, playerId);
-    if (result.dice) {
-      broadcast(roomCode, 'dice_rolled', {
-        die1: result.dice.die1,
-        die2: result.dice.die2,
-        total: result.dice.die1 + result.dice.die2,
-        isDoubles: result.dice.die1 === result.dice.die2,
-        playerId,
-      });
-    }
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('buy_property', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.buyProperty(room.state, playerId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('decline_buy', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.declineBuy(room.state, playerId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('auction_bid', ({ roomCode, amount }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.processBid(room.state, playerId, amount);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('auction_pass', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.passAuction(room.state, playerId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('end_turn', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    if (room.state.playerOrder[room.state.currentPlayerIndex] !== playerId) {
-      return emitError(socket, 'Not your turn');
-    }
-    const result = ge.endTurn(room.state, playerId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('build_house', ({ roomCode, propertyId }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.buildHouse(room.state, playerId, propertyId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('build_hotel', ({ roomCode, propertyId }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.buildHotel(room.state, playerId, propertyId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('sell_house', ({ roomCode, propertyId }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.sellHouse(room.state, playerId, propertyId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('sell_hotel', ({ roomCode, propertyId }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.sellHotel(room.state, playerId, propertyId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('mortgage_property', ({ roomCode, propertyId }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.mortgageProperty(room.state, playerId, propertyId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('unmortgage_property', ({ roomCode, propertyId }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.unmortgageProperty(room.state, playerId, propertyId);
-    handleEngineResult(socket, roomCode, result);
-  });
-
-  socket.on('propose_trade', ({ roomCode, targetPlayerId, offer, request }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.proposeTrade(room.state, playerId, targetPlayerId, offer, request);
-    if (result.error) return emitError(socket, result.error);
-
-    // Notify the trade target
-    const targetSocket = Object.keys(room.playerSocketMap || {}).find(
-      sid => room.playerSocketMap[sid] === targetPlayerId
+    const result = await gm.resumeSession(
+      socket.id,
+      roomCode.toUpperCase(),
+      playerId,
+      reconnectToken
     );
-    // Find target socket ID from state
-    const targetPlayer = room.state.players[targetPlayerId];
-    if (targetPlayer?.socketId) {
-      io.to(targetPlayer.socketId).emit('trade_proposed', {
-        tradeId:    result.tradeId,
-        fromPlayer: room.state.players[playerId].name,
+
+    if (result.error) return emitError(socket, result.error, 'SESSION_NOT_FOUND');
+
+    socket.join(result.roomCode);
+    socket.emit('session_resumed', result);
+
+    if (result.screen === 'lobby') {
+      broadcast(result.roomCode, 'room_updated', {
+        players: result.players,
+        hostId: result.hostId,
+      });
+    } else if (result.state) {
+      broadcastState(result.roomCode, result.state);
+    }
+  });
+
+  onAsync('roll_dice', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => {
+      if (state.playerOrder[state.currentPlayerIndex] !== playerId) {
+        return { error: 'Not your turn' };
+      }
+      if (state.phase !== 'WAITING_FOR_ROLL' && state.phase !== 'WAITING_FOR_JAIL_DECISION') {
+        return { error: 'Cannot roll right now' };
+      }
+
+      const result = ge.rollDiceAction(state, playerId);
+      if (result.dice) {
+        broadcast(roomCode, 'dice_rolled', {
+          die1: result.dice.die1,
+          die2: result.dice.die2,
+          total: result.dice.die1 + result.dice.die2,
+          isDoubles: result.dice.die1 === result.dice.die2,
+          playerId,
+        });
+      }
+      return result;
+    });
+  });
+
+  onAsync('buy_property', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.buyProperty(state, playerId));
+  });
+
+  onAsync('decline_buy', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.declineBuy(state, playerId));
+  });
+
+  onAsync('auction_bid', async ({ roomCode, amount }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.processBid(state, playerId, amount));
+  });
+
+  onAsync('auction_pass', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.passAuction(state, playerId));
+  });
+
+  onAsync('end_turn', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => {
+      if (state.playerOrder[state.currentPlayerIndex] !== playerId) {
+        return { error: 'Not your turn' };
+      }
+      return ge.endTurn(state, playerId);
+    });
+  });
+
+  onAsync('build_house', async ({ roomCode, propertyId }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.buildHouse(state, playerId, propertyId));
+  });
+
+  onAsync('build_hotel', async ({ roomCode, propertyId }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.buildHotel(state, playerId, propertyId));
+  });
+
+  onAsync('sell_house', async ({ roomCode, propertyId }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.sellHouse(state, playerId, propertyId));
+  });
+
+  onAsync('sell_hotel', async ({ roomCode, propertyId }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.sellHotel(state, playerId, propertyId));
+  });
+
+  onAsync('mortgage_property', async ({ roomCode, propertyId }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.mortgageProperty(state, playerId, propertyId));
+  });
+
+  onAsync('unmortgage_property', async ({ roomCode, propertyId }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.unmortgageProperty(state, playerId, propertyId));
+  });
+
+  onAsync('propose_trade', async ({ roomCode, targetPlayerId, offer, request }) => {
+    const result = await runLockedGameAction(socket, roomCode, ({ room, state, playerId }) => {
+      const actionResult = ge.proposeTrade(state, playerId, targetPlayerId, offer, request);
+      if (!actionResult.error) {
+        actionResult.targetSocketId = room.state.players[targetPlayerId]?.socketId || null;
+        actionResult.fromPlayerName = room.state.players[playerId]?.name;
+      }
+      return actionResult;
+    });
+
+    if (!result || result.error) return;
+
+    if (result.targetSocketId) {
+      io.to(result.targetSocketId).emit('trade_proposed', {
+        tradeId: result.tradeId,
+        fromPlayer: result.fromPlayerName,
         offer,
         request,
       });
     }
-    broadcastState(roomCode);
   });
 
-  socket.on('accept_trade', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.acceptTrade(room.state, playerId);
-    handleEngineResult(socket, roomCode, result);
+  onAsync('accept_trade', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.acceptTrade(state, playerId));
   });
 
-  socket.on('reject_trade', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.rejectTrade(room.state, playerId);
-    handleEngineResult(socket, roomCode, result);
+  onAsync('reject_trade', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.rejectTrade(state, playerId));
   });
 
-  socket.on('jail_pay_fine', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.resolveJailDecision(room.state, playerId, 'pay');
-    handleEngineResult(socket, roomCode, result);
+  onAsync('jail_pay_fine', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.resolveJailDecision(state, playerId, 'pay'));
   });
 
-  socket.on('jail_use_card', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.resolveJailDecision(room.state, playerId, 'card');
-    handleEngineResult(socket, roomCode, result);
+  onAsync('jail_use_card', async ({ roomCode }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.resolveJailDecision(state, playerId, 'card'));
   });
 
-  socket.on('income_tax_choice', ({ roomCode, choice }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.resolveIncomeTax(room.state, playerId, choice);
-    handleEngineResult(socket, roomCode, result);
+  onAsync('income_tax_choice', async ({ roomCode, choice }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.resolveIncomeTax(state, playerId, choice));
   });
 
-  socket.on('card_choice', ({ roomCode, choiceIndex, extraData }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const result   = ge.resolveCardChoice(room.state, playerId, choiceIndex, extraData);
-    handleEngineResult(socket, roomCode, result);
+  onAsync('card_choice', async ({ roomCode, choiceIndex, extraData }) => {
+    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.resolveCardChoice(state, playerId, choiceIndex, extraData));
   });
 
-  socket.on('declare_bankruptcy', ({ roomCode }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const state    = room.state;
+  onAsync('declare_bankruptcy', async ({ roomCode }) => {
+    const result = await gm.runGameAction(roomCode, socket.id, ({ room, state, playerId }) => {
+      const creditorId = state.pendingAction?.data?.ownerId || null;
+      const bankruptcyResult = ge.declareBankruptcy(state, playerId, creditorId);
+      return {
+        ...bankruptcyResult,
+        room,
+        bankruptPlayerId: playerId,
+        creditorId,
+      };
+    });
 
-    // Figure out creditor from pendingAction
-    const creditorId = state.pendingAction?.data?.ownerId || null;
-    const result = ge.declareBankruptcy(state, playerId, creditorId);
+    if (result.error) return emitError(socket, result.error);
 
-    broadcast(roomCode, 'bankruptcy_declared', { playerId, creditor: creditorId || 'bank' });
+    broadcast(roomCode, 'bankruptcy_declared', {
+      playerId: result.bankruptPlayerId,
+      creditor: result.creditorId || 'bank',
+    });
+
     if (result.gameOver) {
       broadcast(roomCode, 'game_over', {
-        winner:      result.winner,
-        leaderboard: buildLeaderboard(state),
+        winner: result.winner,
+        leaderboard: buildLeaderboard(result.room.state),
       });
     }
-    broadcastState(roomCode);
+
+    broadcastState(roomCode, result.room.state);
   });
 
-  socket.on('send_chat_message', ({ roomCode, message }) => {
-    const room = gm.getRoom(roomCode);
-    if (!room?.state) return emitError(socket, 'Game not found');
+  onAsync('send_chat_message', async ({ roomCode, message }) => {
+    const result = await gm.runGameAction(roomCode, socket.id, ({ room, state, playerId }) => {
+      const player = playerId ? state.players[playerId] : null;
+      if (!player) return { error: 'Not in this room' };
 
-    const playerId = gm.getPlayerIdBySocket(roomCode, socket.id);
-    const player = playerId ? room.state.players[playerId] : null;
-    if (!player) return emitError(socket, 'Not in this room');
+      const trimmed = String(message || '').trim();
+      if (!trimmed) return { error: 'Message cannot be empty' };
 
-    const trimmed = String(message || '').trim();
-    if (!trimmed) return emitError(socket, 'Message cannot be empty');
+      state.chatMessages = [
+        ...state.chatMessages,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          playerId,
+          playerName: player.name,
+          tokenColor: player.tokenColor,
+          message: trimmed.slice(0, 280),
+          timestamp: Date.now(),
+        },
+      ].slice(-60);
 
-    room.state.chatMessages = [
-      ...room.state.chatMessages,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        playerId,
-        playerName: player.name,
-        tokenColor: player.tokenColor,
-        message: trimmed.slice(0, 280),
-        timestamp: Date.now(),
-      },
-    ].slice(-60);
+      return { room };
+    });
 
-    broadcastState(roomCode);
-  });
-
-  // ── RECONNECT ──────────────────────────────────────────────────────────────
-
-  socket.on('reconnect_player', ({ roomCode, playerName }) => {
-    const result = gm.handleReconnect(socket.id, roomCode, playerName);
     if (result.error) return emitError(socket, result.error);
-    socket.join(roomCode);
-    socket.emit('reconnected', { playerId: result.playerId, state: result.state });
+    broadcastState(roomCode, result.room.state);
   });
-
-  // ── DISCONNECT ─────────────────────────────────────────────────────────────
 
   socket.on('disconnect', () => {
     console.log(`[-] ${socket.id} disconnected`);
-    const result = gm.handleDisconnect(socket.id);
-    if (!result) return;
-    if (result.players) {
-      broadcast(result.roomCode, 'room_updated', { players: result.players, hostId: result.hostId });
-    }
+    gm.handleDisconnect(socket.id).catch((error) => {
+      console.error('Disconnect handling failed:', error);
+    });
   });
 });
 
-// Catch-all: serve React app for any non-API route
-app.get('*', (req, res) => {
+app.get('*', (_req, res) => {
   res.sendFile(path.join(CLIENT_DIST, 'index.html'));
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`CFB Board Game server running on http://0.0.0.0:${PORT}`);
+  try {
+    await gm.expireStaleRooms();
+    gm.startCleanupJob();
+  } catch (error) {
+    console.error('Failed to initialize room cleanup:', error);
+  }
 });

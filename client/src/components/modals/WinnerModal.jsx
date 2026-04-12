@@ -7,6 +7,11 @@ export default function WinnerModal({ data, playerId, gameState }) {
   const isWinner = data.winner === playerId;
   const winner   = data.winner ? gameState?.players?.[data.winner] : null;
 
+  function playAgain() {
+    window.localStorage.removeItem('cfb_session');
+    window.location.reload();
+  }
+
   return (
     <div className="modal-overlay winner-overlay">
       <div className="modal-card winner-modal">
@@ -51,7 +56,7 @@ export default function WinnerModal({ data, playerId, gameState }) {
             "Football is to the South what religion is to the soul — it is not what
             we do on Saturday. It is who we are."
           </p>
-          <button className="btn btn-primary" onClick={() => window.location.reload()}>
+          <button className="btn btn-primary" onClick={playAgain}>
             PLAY AGAIN
           </button>
         </div>

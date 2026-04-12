@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import socket from '../socket.js';
 
-export default function HomeScreen() {
-  const [name, setName]       = useState('');
-  const [code, setCode]       = useState('');
-  const [mode, setMode]       = useState(null); // 'create' | 'join'
+export default function HomeScreen({ initialJoinCode = '', initialName = '', restoreError = '' }) {
+  const [name, setName]       = useState(initialName);
+  const [code, setCode]       = useState(initialJoinCode);
+  const [mode, setMode]       = useState(initialJoinCode ? 'join' : null); // 'create' | 'join'
 
   function handleCreate() {
     if (!name.trim()) return alert('Enter your name first');
@@ -31,6 +31,12 @@ export default function HomeScreen() {
         </div>
 
         <div className="home-form">
+          {restoreError && (
+            <div className="home-restore-error">
+              {restoreError}
+            </div>
+          )}
+
           <label className="field-label">YOUR NAME</label>
           <input
             className="text-input"

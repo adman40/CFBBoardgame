@@ -85,6 +85,16 @@ h1, h2, h3 { font-family: 'Oswald', sans-serif; letter-spacing: 0.5px; }
   text-transform: uppercase;
 }
 
+.home-restore-error {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: #fff4d6;
+  color: #7a5200;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 /* ── Modal overlay ────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
