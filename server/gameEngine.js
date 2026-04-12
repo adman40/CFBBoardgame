@@ -997,8 +997,12 @@ function resolveCardChoice(state, playerId, choiceIndex, extraData) {
   if (eff.type === 'choice') {
     const chosen = eff.choices[choiceIndex];
     if (!chosen) return { error: 'Invalid choice' };
+    const originalPending = state.pendingAction;
     const result = applyCardEffect(state, playerId, { ...card, effect: chosen.effect });
-    state.pendingAction = null;
+    // Only clear the original choice if the selected effect did not enqueue a follow-up action.
+    if (state.pendingAction === originalPending) {
+      state.pendingAction = null;
+    }
     return result;
   }
 
