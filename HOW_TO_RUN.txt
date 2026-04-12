@@ -1,0 +1,52 @@
+================================================================================
+HOW TO RUN — From the Field to the Fortune
+================================================================================
+
+── DEVELOPMENT (two terminals) ─────────────────────────────────────────────────
+
+Terminal 1 (Server):
+  cd /Users/amanoni/Desktop/CFBBoardgame/server
+  node server.js
+  → Runs on http://localhost:3001
+
+Terminal 2 (Client):
+  cd /Users/amanoni/Desktop/CFBBoardgame/client
+  npm run dev
+  → Runs on http://localhost:5173
+  → Open this in your browser
+
+── PRODUCTION / SHOWCASE DAY ────────────────────────────────────────────────────
+
+Step 1 — Build the client:
+  cd /Users/amanoni/Desktop/CFBBoardgame/client
+  npm run build
+
+Step 2 — Start the production server (serves everything from one port):
+  cd /Users/amanoni/Desktop/CFBBoardgame/server
+  node server.js
+  → http://localhost:3001
+
+Step 3 — Open ngrok tunnel:
+  ngrok http 3001
+  → You'll get a URL like https://abc123.ngrok.io
+
+Step 4 — Update the client env and rebuild:
+  Edit client/.env.production → set VITE_SERVER_URL=https://abc123.ngrok.io
+  cd client && npm run build
+  Restart server: cd ../server && node server.js
+
+Step 5 — Generate QR code:
+  Go to https://abc123.ngrok.io in your browser
+  Create a room, copy the room code
+  Put the room code URL in a QR generator (qr-code-generator.com)
+  Display it on your laptop for others to scan
+
+── FALLBACK (no internet needed) ────────────────────────────────────────────────
+
+If ngrok is unavailable:
+1. Connect all phones to the same WiFi as your laptop
+2. Find your laptop's local IP: System Preferences → Network → Wi-Fi
+3. Access the game at http://192.168.x.x:3001
+4. Generate QR code pointing to that local IP URL
+
+================================================================================

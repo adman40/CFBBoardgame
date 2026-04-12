@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>From The Field To The Fortune Rulebook</title>
+    <style>
+      :root {
+        --paper: #fcfbf7;
+        --ink: #171717;
+        --muted: #5f5f5f;
+        --line: #d7d1c5;
+        --accent: #1d4f2c;
+        --accent-soft: #edf4ee;
+        --gold: #9c6a16;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(180deg, #ece8df 0%, #ddd6c7 100%);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      .shell {
+        min-height: 100vh;
+        padding: 24px 16px 56px;
+      }
+
+      .toolbar {
+        max-width: 860px;
+        margin: 0 auto 16px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .toolbar button,
+      .toolbar a {
+        appearance: none;
+        border: 1px solid rgba(0, 0, 0, 0.14);
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--ink);
+        text-decoration: none;
+        border-radius: 999px;
+        padding: 10px 14px;
+        font: 600 13px/1.1 Arial, Helvetica, sans-serif;
+        cursor: pointer;
+      }
+
+      .page {
+        max-width: 860px;
+        margin: 0 auto;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        box-shadow: 0 20px 48px rgba(0, 0, 0, 0.12);
+      }
+
+      .page-inner {
+        padding: 40px 32px 48px;
+      }
+
+      .masthead {
+        text-align: center;
+        border-bottom: 2px solid var(--ink);
+        padding-bottom: 18px;
+        margin-bottom: 26px;
+      }
+
+      .badge {
+        display: inline-block;
+        border: 3px solid var(--ink);
+        border-radius: 14px;
+        padding: 10px 24px;
+        font: 800 34px/1 Arial, Helvetica, sans-serif;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        background: #fff;
+      }
+
+      .subtitle {
+        margin-top: 14px;
+        font: 800 19px/1.2 Arial, Helvetica, sans-serif;
+        text-transform: uppercase;
+      }
+
+      .subcopy {
+        margin-top: 8px;
+        color: var(--muted);
+        font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+      }
+
+      .intro-note {
+        background: var(--accent-soft);
+        border-left: 5px solid var(--accent);
+        padding: 14px 16px;
+        margin-bottom: 26px;
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      .content h2 {
+        margin: 28px 0 10px;
+        font: 900 22px/1.2 Arial, Helvetica, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .content h3 {
+        margin: 22px 0 8px;
+        font: 800 18px/1.25 Arial, Helvetica, sans-serif;
+      }
+
+      .content h4 {
+        margin: 18px 0 8px;
+        font: 800 16px/1.25 Arial, Helvetica, sans-serif;
+        text-transform: uppercase;
+      }
+
+      .content p {
+        margin: 0 0 14px;
+        font-size: 17px;
+        line-height: 1.62;
+      }
+
+      .content ul,
+      .content ol {
+        margin: 0 0 18px 24px;
+        padding: 0;
+        font-size: 17px;
+        line-height: 1.62;
+      }
+
+      .content li {
+        margin-bottom: 8px;
+      }
+
+      .content .rule-line {
+        margin: 0 0 8px;
+      }
+
+      .content .small-gap {
+        margin-bottom: 6px;
+      }
+
+      .loading,
+      .error {
+        padding: 48px 24px;
+        text-align: center;
+        font: 600 16px/1.5 Arial, Helvetica, sans-serif;
+      }
+
+      .footer-note {
+        margin-top: 36px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        text-align: center;
+        font: 600 12px/1.4 Arial, Helvetica, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+      }
+
+      @media (max-width: 720px) {
+        .page-inner {
+          padding: 28px 20px 36px;
+        }
+
+        .badge {
+          font-size: 24px;
+          padding: 10px 16px;
+        }
+
+        .subtitle {
+          font-size: 16px;
+        }
+
+        .content p,
+        .content ul,
+        .content ol {
+          font-size: 16px;
+        }
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+
+        .shell {
+          padding: 0;
+        }
+
+        .toolbar {
+          display: none;
+        }
+
+        .page {
+          max-width: none;
+          border: none;
+          box-shadow: none;
+        }
+
+        .page-inner {
+          padding: 0.5in;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="toolbar">
+        <a href="/FromTheFieldToTheFortune_Rulebook.txt" target="_blank" rel="noopener noreferrer">View Raw Text</a>
+        <button type="button" id="print-button">Print / Save PDF</button>
+      </div>
+
+      <div class="page">
+        <div class="page-inner">
+          <header class="masthead">
+            <div class="badge">Field to Fortune</div>
+            <div class="subtitle">The College Football History Board Game</div>
+            <div class="subcopy">Official Rules and How to Play Guide</div>
+          </header>
+
+          <div id="content" class="content">
+            <div class="loading">Loading rulebook...</div>
+          </div>
+
+          <div class="footer-note">From The Field To The Fortune</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById('print-button').addEventListener('click', () => {
+        window.print();
+      });
+
+      function isSeparator(line) {
+        return /^={5,}$/.test(line) || /^-{5,}$/.test(line);
+      }
+
+      function isAllCapsHeading(line) {
+        return /^[A-Z0-9'()./&:\-\s]+$/.test(line) && line === line.toUpperCase() && line.length < 90;
+      }
+
+      function flushParagraph(buffer, target) {
+        if (!buffer.length) return;
+        const p = document.createElement('p');
+        p.textContent = buffer.join(' ').replace(/\s+/g, ' ').trim();
+        target.appendChild(p);
+        buffer.length = 0;
+      }
+
+      function flushList(listType, items, target) {
+        if (!items.length) return;
+        const list = document.createElement(listType);
+        items.forEach((item) => {
+          const li = document.createElement('li');
+          li.textContent = item.replace(/\s+/g, ' ').trim();
+          list.appendChild(li);
+        });
+        target.appendChild(list);
+        items.length = 0;
+      }
+
+      function renderRulebook(text) {
+        const content = document.getElementById('content');
+        content.innerHTML = '';
+
+        const lines = text.split(/\r?\n/);
+        const paragraph = [];
+        const bullets = [];
+        const numbers = [];
+
+        let introCaptured = false;
+
+        function flushAll() {
+          flushParagraph(paragraph, content);
+          flushList('ul', bullets, content);
+          flushList('ol', numbers, content);
+        }
+
+        for (let i = 0; i < lines.length; i += 1) {
+          const raw = lines[i];
+          const line = raw.trim();
+
+          if (!line) {
+            flushAll();
+            continue;
+          }
+
+          if (isSeparator(line)) {
+            continue;
+          }
+
+          if (!introCaptured && line === 'WELCOME — A NOTE TO INTERNATIONAL PLAYERS') {
+            flushAll();
+            const note = document.createElement('div');
+            note.className = 'intro-note';
+            let noteLines = [];
+            i += 1;
+            for (; i < lines.length; i += 1) {
+              const noteLine = lines[i].trim();
+              if (!noteLine) {
+                noteLines.push('');
+                continue;
+              }
+              if (/^SECTION \d+:/.test(noteLine)) {
+                i -= 1;
+                break;
+              }
+              if (!isSeparator(noteLine)) {
+                noteLines.push(noteLine);
+              }
+            }
+
+            note.innerHTML = noteLines
+              .join('\n')
+              .split(/\n{2,}/)
+              .map((block) => '<p class="small-gap">' + block.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() + '</p>')
+              .join('');
+            content.appendChild(note);
+            introCaptured = true;
+            continue;
+          }
+
+          if (/^SECTION \d+:/.test(line)) {
+            flushAll();
+            const h2 = document.createElement('h2');
+            h2.textContent = line.replace(/^SECTION \d+:\s*/, '');
+            content.appendChild(h2);
+            continue;
+          }
+
+          if (/^THEME \d+:/.test(line)) {
+            flushAll();
+            const h3 = document.createElement('h3');
+            h3.textContent = line;
+            content.appendChild(h3);
+            continue;
+          }
+
+          if (/^---\s+.*\s+---$/.test(raw.trim())) {
+            flushAll();
+            const h4 = document.createElement('h4');
+            h4.textContent = raw.trim().replace(/^---\s+/, '').replace(/\s+---$/, '');
+            content.appendChild(h4);
+            continue;
+          }
+
+          if (/^\d+\.\s+/.test(line)) {
+            flushParagraph(paragraph, content);
+            flushList('ul', bullets, content);
+            numbers.push(line.replace(/^\d+\.\s+/, ''));
+            continue;
+          }
+
+          if (/^-\s+/.test(line)) {
+            flushParagraph(paragraph, content);
+            flushList('ol', numbers, content);
+            bullets.push(line.replace(/^-\s+/, ''));
+            continue;
+          }
+
+          if (isAllCapsHeading(line) && line.length <= 42) {
+            flushAll();
+            const h4 = document.createElement('h4');
+            h4.textContent = line;
+            content.appendChild(h4);
+            continue;
+          }
+
+          flushList('ul', bullets, content);
+          flushList('ol', numbers, content);
+          paragraph.push(line);
+        }
+
+        flushAll();
+      }
+
+      fetch('/FromTheFieldToTheFortune_Rulebook.txt')
+        .then((response) => {
+          if (!response.ok) throw new Error('Unable to load rulebook');
+          return response.text();
+        })
+        .then(renderRulebook)
+        .catch(() => {
+          const content = document.getElementById('content');
+          content.innerHTML = '<div class="error">Unable to load the rulebook right now.</div>';
+        });
+    </script>
+  </body>
+</html>

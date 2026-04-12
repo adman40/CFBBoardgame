@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: cfb-boardgame
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: cd client && npm install && npm run build && cd ../server && npm install
+    startCommand: cd server && npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 20

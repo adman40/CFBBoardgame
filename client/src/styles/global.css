@@ -1,0 +1,120 @@
+/* ── Reset & base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --green-dark:   #1a4d0e;
+  --green-mid:    #2d6e1b;
+  --green-light:  #c8f7c5;
+  --gold:         #DAA520;
+  --cream:        #faf7e8;
+  --text:         #1a1a1a;
+  --text-light:   #555;
+  --radius:       8px;
+  --shadow:       0 2px 12px rgba(0,0,0,0.18);
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Open Sans', sans-serif;
+  background: var(--green-dark);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2, h3 { font-family: 'Oswald', sans-serif; letter-spacing: 0.5px; }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: 'Oswald', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
+  transition: filter 0.1s, transform 0.1s;
+  text-transform: uppercase;
+  user-select: none;
+}
+.btn:active { transform: scale(0.97); filter: brightness(0.9); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.btn-primary   { background: var(--green-dark); color: white; }
+.btn-secondary { background: #4a4a4a; color: white; }
+.btn-success   { background: #2e7d32; color: white; }
+.btn-danger    { background: #c62828; color: white; }
+.btn-ghost     { background: transparent; color: var(--green-dark); text-decoration: underline; }
+.btn-lg        { padding: 14px 24px; font-size: 17px; }
+
+/* ── Inputs ───────────────────────────────────────────────────── */
+.text-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid #ccc;
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-family: 'Open Sans', sans-serif;
+  outline: none;
+  margin-bottom: 12px;
+}
+.text-input:focus { border-color: var(--green-dark); }
+.text-input-code  { text-align: center; font-size: 22px; letter-spacing: 4px; font-family: 'Oswald', sans-serif; text-transform: uppercase; }
+
+.field-label {
+  display: block;
+  font-family: 'Oswald', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text-light);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+/* ── Modal overlay ────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 12px;
+  overflow-y: auto;
+}
+.modal-card {
+  background: var(--cream);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 420px;
+  overflow: hidden;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ── Loading ──────────────────────────────────────────────────── */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: white;
+  font-family: 'Oswald', sans-serif;
+  font-size: 20px;
+}
