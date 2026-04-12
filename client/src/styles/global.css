@@ -128,3 +128,16 @@ h1, h2, h3 { font-family: 'Oswald', sans-serif; letter-spacing: 0.5px; }
   font-family: 'Oswald', sans-serif;
   font-size: 20px;
 }
+
+.lobby-leave-btn,
+.game-leave-btn {
+  align-self: center;
+  color: white;
+  text-decoration: none;
+}
+
+.game-leave-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 14px 0;
+}

@@ -4,7 +4,7 @@ import socket from '../socket.js';
 
 const TOKEN_COLORS = ['#E53E3E', '#3182CE', '#38A169', '#D69E2E', '#805AD5'];
 
-export default function LobbyScreen({ roomCode, playerId, players, hostId }) {
+export default function LobbyScreen({ roomCode, playerId, players, hostId, onLeave }) {
   const isHost   = playerId === hostId;
   const joinUrl  = `${window.location.origin}?join=${roomCode}`;
 
@@ -17,6 +17,9 @@ export default function LobbyScreen({ roomCode, playerId, players, hostId }) {
       <div className="lobby-header">
         <h1 className="lobby-title">FROM THE FIELD TO THE FORTUNE</h1>
         <p className="lobby-subtitle">Waiting for players...</p>
+        <button className="btn btn-ghost lobby-leave-btn" onClick={onLeave}>
+          Leave Game
+        </button>
       </div>
 
       <div className="lobby-content">

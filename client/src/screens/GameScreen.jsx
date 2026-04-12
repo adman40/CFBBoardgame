@@ -19,7 +19,7 @@ function randomDieFace() {
   return Math.floor(Math.random() * 6) + 1;
 }
 
-export default function GameScreen({ gameState, playerId, roomCode }) {
+export default function GameScreen({ gameState, playerId, roomCode, onLeave }) {
   const [displayState, setDisplayState]   = useState(gameState);
   const [lastCard, setLastCard]           = useState(null);
   const [diceAnim, setDiceAnim]           = useState(null);
@@ -151,6 +151,11 @@ export default function GameScreen({ gameState, playerId, roomCode }) {
 
   return (
     <div className="game-screen">
+      <div className="game-leave-bar">
+        <button className="btn btn-ghost game-leave-btn" onClick={onLeave}>
+          Leave Game
+        </button>
+      </div>
       <div className="game-layout">
         <div className="game-sidebar">
           <PlayerPanel gameState={activeState} playerId={playerId} roomCode={roomCode} />

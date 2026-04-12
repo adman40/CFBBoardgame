@@ -132,6 +132,19 @@ export default function App() {
     };
   }, []);
 
+  function leaveGame() {
+    clearSession();
+    setScreen('home');
+    setRoomCode('');
+    setPlayerId('');
+    setPlayers([]);
+    setHostId('');
+    setGameState(null);
+    setRestoreError('');
+    socket.disconnect();
+    socket.connect();
+  }
+
   if (screen === 'home') {
     return <HomeScreen initialJoinCode={joinCodeFromUrl} initialName={loadStoredSession()?.playerName || ''} restoreError={restoreError} />;
   }
@@ -143,6 +156,7 @@ export default function App() {
         playerId={playerId}
         players={players}
         hostId={hostId}
+        onLeave={leaveGame}
       />
     );
   }
@@ -153,6 +167,7 @@ export default function App() {
         gameState={gameState}
         playerId={playerId}
         roomCode={roomCode}
+        onLeave={leaveGame}
       />
     );
   }
