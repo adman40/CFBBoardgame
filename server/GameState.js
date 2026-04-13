@@ -4,7 +4,7 @@ const { shuffleDeck, GRIDIRON_EVENTS, COMMISSIONERS_OFFICE } = require('./cardDe
 const TOKEN_COLORS = ['#E53E3E', '#3182CE', '#38A169', '#D69E2E', '#805AD5'];
 const TOKEN_NAMES  = ['Red',     'Blue',    'Green',   'Gold',    'Purple'];
 
-const STARTING_CASH = 15_000_000_000; // $15B in raw dollars (displayed as $15M in game)
+const STARTING_CASH = 3_000_000_000; // $3B in raw dollars (displayed as $3M in game)
 
 function buildInitialProperties() {
   const state = {};
