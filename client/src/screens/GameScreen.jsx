@@ -5,7 +5,6 @@ import ActionPanel  from '../components/panels/ActionPanel.jsx';
 import PlayerPanel  from '../components/panels/PlayerPanel.jsx';
 import CardModal    from '../components/modals/CardModal.jsx';
 import BuyModal     from '../components/modals/BuyModal.jsx';
-import AuctionModal from '../components/modals/AuctionModal.jsx';
 import JailModal    from '../components/modals/JailModal.jsx';
 import TaxModal     from '../components/modals/TaxModal.jsx';
 import TradeModal   from '../components/modals/TradeModal.jsx';
@@ -147,7 +146,6 @@ export default function GameScreen({ gameState, playerId, roomCode, onLeave }) {
   const showTaxModal     = phase === 'WAITING_FOR_TAX_CHOICE'   && isMyTurn;
   const showJailModal    = phase === 'WAITING_FOR_JAIL_DECISION' && isMyTurn && me.isJailed;
   const showCardChoice   = phase === 'WAITING_FOR_CARD_CHOICE'  && isMyTurn;
-  const showAuction      = phase === 'AUCTION_IN_PROGRESS';
 
   return (
     <div className="game-screen">
@@ -214,14 +212,6 @@ export default function GameScreen({ gameState, playerId, roomCode, onLeave }) {
 
       {showCardChoice && (
         <CardChoiceModal
-          gameState={activeState}
-          playerId={playerId}
-          roomCode={roomCode}
-        />
-      )}
-
-      {showAuction && (
-        <AuctionModal
           gameState={activeState}
           playerId={playerId}
           roomCode={roomCode}

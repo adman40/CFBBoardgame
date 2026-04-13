@@ -562,16 +562,17 @@ function buyProperty(state, playerId) {
   return { events: [] };
 }
 
-// ─── declineBuy → startAuction ────────────────────────────────────────────────
+// ─── declineBuy ────────────────────────────────────────────────────────────────
 
 function declineBuy(state, playerId) {
   if (state.phase !== 'WAITING_FOR_BUY_DECISION') return { error: 'Not in buy phase' };
   const { propertyId } = state.pendingAction.data;
   const prop = state.properties[propertyId];
 
-  logEvent(state, playerId, `${state.players[playerId].name} declined to buy ${prop.name} — auction starting`, 'auction');
-
-  return startAuction(state, propertyId);
+  state.pendingAction = null;
+  finishActionPhase(state, playerId);
+  logEvent(state, playerId, `${state.players[playerId].name} declined to buy ${prop.name} — returned to the Bank`, 'purchase');
+  return { events: [] };
 }
 
 function startAuction(state, propertyId) {

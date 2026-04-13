@@ -19,7 +19,7 @@ export default function ActionPanel({ gameState, playerId, roomCode, isMyTurn })
   }
 
   function declareBankruptcy() {
-    if (window.confirm('Declare bankruptcy and leave the game?')) {
+    if (window.confirm('Declare bankruptcy and leave the game? This cannot be undone.')) {
       socket.emit('declare_bankruptcy', { roomCode });
     }
   }
@@ -68,7 +68,7 @@ export default function ActionPanel({ gameState, playerId, roomCode, isMyTurn })
         </div>
 
         {/* Bankruptcy button */}
-        {isMyTurn && me.cash < 0 && (
+        {isMyTurn && (
           <button className="btn btn-danger btn-action" onClick={declareBankruptcy}>
             💀 DECLARE BANKRUPTCY
           </button>

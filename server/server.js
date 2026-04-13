@@ -287,11 +287,11 @@ io.on('connection', (socket) => {
   });
 
   onAsync('auction_bid', async ({ roomCode, amount }) => {
-    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.processBid(state, playerId, amount));
+    emitError(socket, 'Auctions are disabled');
   });
 
   onAsync('auction_pass', async ({ roomCode }) => {
-    await runLockedGameAction(socket, roomCode, ({ state, playerId }) => ge.passAuction(state, playerId));
+    emitError(socket, 'Auctions are disabled');
   });
 
   onAsync('end_turn', async ({ roomCode }) => {

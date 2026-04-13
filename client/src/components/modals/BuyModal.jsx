@@ -18,7 +18,7 @@ export default function BuyModal({ gameState, playerId, roomCode }) {
     socket.emit('buy_property', { roomCode });
   }
 
-  function auction() {
+  function decline() {
     socket.emit('decline_buy', { roomCode });
   }
 
@@ -64,8 +64,8 @@ export default function BuyModal({ gameState, playerId, roomCode }) {
           >
             BUY — {formatMoney(price)}
           </button>
-          <button className="btn btn-secondary" onClick={auction}>
-            AUCTION IT
+          <button className="btn btn-secondary" onClick={decline}>
+            PASS ON PROPERTY
           </button>
         </div>
       </div>

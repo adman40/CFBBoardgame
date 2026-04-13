@@ -84,7 +84,7 @@ export default function CenterPanel({ gameState, playerId, roomCode, diceAnim, i
 function phaseLabel(phase) {
   const labels = {
     WAITING_FOR_ROLL:         'Roll the dice',
-    WAITING_FOR_BUY_DECISION: 'Buy or auction?',
+    WAITING_FOR_BUY_DECISION: 'Buy or pass?',
     AUCTION_IN_PROGRESS:      '🔨 Auction in progress',
     WAITING_FOR_CARD_ACK:     'Draw a card',
     WAITING_FOR_TAX_CHOICE:   'Choose tax option',
