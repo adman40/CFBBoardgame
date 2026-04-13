@@ -18,7 +18,7 @@ export default function HomeScreen({ initialJoinCode = '', initialName = '', res
   }
 
   function openRulebook() {
-    window.open('/rulebook.html', '_blank', 'noopener,noreferrer');
+    window.open('/FieldToFortune_Rulebook.pdf', '_blank', 'noopener,noreferrer');
   }
 
   return (
