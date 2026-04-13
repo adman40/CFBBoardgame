@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS rooms (
   lobby_players_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   game_state_json JSONB,
   last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at TIMESTAMPTZ,
+  zero_connected_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

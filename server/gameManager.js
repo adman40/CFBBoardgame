@@ -1,10 +1,14 @@
 const crypto = require('crypto');
 
 const db = require('./db');
+const ge = require('./gameEngine');
 const { createGameState } = require('./GameState');
 const { generateRoomCode, generatePlayerId } = require('./utils');
 
 const MAX_PLAYERS = 5;
+const ROOM_IDLE_TTL_MINUTES = 60;
+const ZERO_CONNECTED_GRACE_MINUTES = 10;
+const FINISHED_ROOM_GRACE_MINUTES = 10;
 
 const socketBindings = new Map(); // socketId -> { roomCode, playerId }
 const playerSockets = new Map(); // `${roomCode}:${playerId}` -> socketId
@@ -73,6 +77,8 @@ function hydrateRoom(row, sessions = []) {
       lastSeenAt: session.last_seen_at,
     })),
     lastActivityAt: row.last_activity_at,
+    finishedAt: row.finished_at,
+    zeroConnectedAt: row.zero_connected_at,
   };
 }
 
@@ -107,6 +113,26 @@ function getSocketIdForPlayer(roomCode, playerId) {
   return playerSockets.get(roomPlayerKey(roomCode, playerId)) || null;
 }
 
+function setSessionSocket(room, playerId, socketId) {
+  const session = room.sessions.find((entry) => entry.playerId === playerId);
+  if (!session) return;
+  session.lastSocketId = socketId;
+  session.lastSeenAt = new Date();
+}
+
+function removeSession(room, playerId) {
+  room.sessions = room.sessions.filter((entry) => entry.playerId !== playerId);
+}
+
+function updateZeroConnectedAt(room) {
+  const hasConnectedSession = room.sessions.some((entry) => entry.lastSocketId);
+  if (hasConnectedSession) {
+    room.zeroConnectedAt = null;
+  } else if (!room.zeroConnectedAt) {
+    room.zeroConnectedAt = new Date();
+  }
+}
+
 async function fetchLockedRoom(client, roomCode) {
   const roomResult = await client.query(
     `SELECT *
@@ -129,12 +155,27 @@ async function fetchLockedRoom(client, roomCode) {
   return hydrateRoom(roomResult.rows[0], sessionsResult.rows);
 }
 
+async function deleteRoom(client, roomCode) {
+  await client.query(
+    'DELETE FROM rooms WHERE room_code = $1',
+    [roomCode]
+  );
+}
+
 async function persistRoom(client, room) {
   const status = room.state
     ? (room.state.gameOver ? 'finished' : 'active')
     : (room.status || 'lobby');
   const now = new Date();
   const stateToSave = sanitizeState(room.state);
+
+  updateZeroConnectedAt(room);
+
+  if (status === 'finished') {
+    room.finishedAt = room.finishedAt || now;
+  } else {
+    room.finishedAt = null;
+  }
 
   if (stateToSave) {
     stateToSave.lastActivity = Date.now();
@@ -147,6 +188,8 @@ async function persistRoom(client, room) {
          lobby_players_json = $4::jsonb,
          game_state_json = $5::jsonb,
          last_activity_at = $6,
+         finished_at = $7,
+         zero_connected_at = $8,
          updated_at = NOW()
      WHERE room_code = $1`,
     [
@@ -156,6 +199,8 @@ async function persistRoom(client, room) {
       JSON.stringify(sanitizeLobbyPlayers(room.lobbyPlayers)),
       JSON.stringify(stateToSave),
       now,
+      room.finishedAt,
+      room.zeroConnectedAt,
     ]
   );
 }
@@ -191,9 +236,9 @@ async function createRoom(socketId, playerName) {
 
     await client.query(
       `INSERT INTO rooms (
-         room_code, status, host_player_id, lobby_players_json, game_state_json, last_activity_at
+         room_code, status, host_player_id, lobby_players_json, game_state_json, last_activity_at, finished_at, zero_connected_at
        )
-       VALUES ($1, 'lobby', $2, $3::jsonb, NULL, NOW())`,
+       VALUES ($1, 'lobby', $2, $3::jsonb, NULL, NOW(), NULL, NULL)`,
       [roomCode, playerId, JSON.stringify([{ id: playerId, name: playerName }])]
     );
 
@@ -233,6 +278,17 @@ async function joinRoom(roomCode, socketId, playerName) {
     const reconnectToken = createReconnectToken();
 
     room.lobbyPlayers.push({ id: playerId, name: playerName, socketId });
+    room.sessions.push({
+      playerId,
+      roomCode,
+      playerName,
+      reconnectToken,
+      lastSocketId: socketId,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSeenAt: new Date(),
+    });
 
     await client.query(
       `INSERT INTO player_sessions (
@@ -311,6 +367,8 @@ async function resumeSession(socketId, roomCode, playerId, reconnectToken) {
     );
 
     bindSocket(socketId, roomCode, playerId);
+    setSessionSocket(room, playerId, socketId);
+    updateZeroConnectedAt(room);
 
     if (room.state?.players?.[playerId]) {
       room.state.players[playerId].socketId = socketId;
@@ -324,6 +382,7 @@ async function resumeSession(socketId, roomCode, playerId, reconnectToken) {
       };
     }
 
+    await persistRoom(client, room);
     return {
       screen: 'lobby',
       roomCode,
@@ -370,12 +429,15 @@ async function runGameAction(roomCode, socketId, fn) {
 }
 
 async function handleDisconnect(socketId) {
-  const binding = clearSocketBinding(socketId);
+  const binding = getBindingBySocket(socketId);
   if (!binding) return null;
 
   return db.withTransaction(async (client) => {
     const room = await fetchLockedRoom(client, binding.roomCode);
-    if (!room) return null;
+    if (!room) {
+      clearSocketBinding(socketId);
+      return null;
+    }
 
     await client.query(
       `UPDATE player_sessions
@@ -386,10 +448,14 @@ async function handleDisconnect(socketId) {
       [binding.playerId]
     );
 
+    clearSocketBinding(socketId);
+    setSessionSocket(room, binding.playerId, null);
+
     if (room.state?.players?.[binding.playerId]) {
       room.state.players[binding.playerId].socketId = null;
-      await persistRoom(client, room);
     }
+
+    await persistRoom(client, room);
 
     return {
       roomCode: binding.roomCode,
@@ -399,13 +465,90 @@ async function handleDisconnect(socketId) {
   });
 }
 
+async function leaveRoom(roomCode, socketId) {
+  return withLockedRoom(roomCode, async ({ client, room }) => {
+    const binding = getBindingBySocket(socketId);
+    if (!binding || binding.roomCode !== roomCode) return { error: 'Not in this room' };
+
+    const playerId = binding.playerId;
+    const wasCurrentPlayer = room.state?.playerOrder?.[room.state.currentPlayerIndex] === playerId;
+    const playerWasActive = Boolean(room.state?.players?.[playerId]?.isActive);
+
+    await client.query(
+      'DELETE FROM player_sessions WHERE player_id = $1',
+      [playerId]
+    );
+
+    clearSocketBinding(socketId);
+    removeSession(room, playerId);
+
+    if (!room.state) {
+      room.lobbyPlayers = room.lobbyPlayers.filter((player) => player.id !== playerId);
+      room.hostPlayerId = room.lobbyPlayers[0]?.id || room.hostPlayerId;
+
+      if (room.lobbyPlayers.length === 0) {
+        await deleteRoom(client, roomCode);
+        return {
+          roomCode,
+          playerId,
+          left: true,
+          deleted: true,
+          persist: false,
+        };
+      }
+
+      return {
+        roomCode,
+        playerId,
+        left: true,
+        players: sanitizeLobbyPlayers(room.lobbyPlayers),
+        hostId: room.hostPlayerId,
+      };
+    }
+
+    if (room.state.players[playerId]) {
+      room.state.players[playerId].socketId = null;
+    }
+
+    let bankruptcyResult = null;
+    if (playerWasActive) {
+      bankruptcyResult = ge.declareBankruptcy(room.state, playerId, null);
+      if (!bankruptcyResult.gameOver && wasCurrentPlayer) {
+        room.state.lastRolledDoubles = false;
+        room.state.phase = 'TURN_ACTIONS_COMPLETE';
+        ge.endTurn(room.state, playerId);
+      }
+    }
+
+    return {
+      roomCode,
+      playerId,
+      left: true,
+      room,
+      bankruptPlayerId: playerWasActive ? playerId : null,
+      bankruptcyResult,
+    };
+  });
+}
+
 async function expireStaleRooms() {
   await db.query(
-    `UPDATE rooms
-     SET status = 'expired',
-         updated_at = NOW()
-     WHERE status <> 'expired'
-       AND last_activity_at < NOW() - INTERVAL '72 hours'`
+    `DELETE FROM rooms
+     WHERE
+       last_activity_at < NOW() - ($1::text || ' minutes')::interval
+       OR (
+         zero_connected_at IS NOT NULL
+         AND zero_connected_at < NOW() - ($2::text || ' minutes')::interval
+       )
+       OR (
+         finished_at IS NOT NULL
+         AND finished_at < NOW() - ($3::text || ' minutes')::interval
+       )`,
+    [
+      String(ROOM_IDLE_TTL_MINUTES),
+      String(ZERO_CONNECTED_GRACE_MINUTES),
+      String(FINISHED_ROOM_GRACE_MINUTES),
+    ]
   );
 }
 
@@ -414,7 +557,7 @@ function startCleanupJob() {
     expireStaleRooms().catch((error) => {
       console.error('Failed to expire stale rooms:', error);
     });
-  }, 30 * 60 * 1000);
+  }, 60 * 1000);
 }
 
 module.exports = {
@@ -425,6 +568,7 @@ module.exports = {
   withLockedRoom,
   runGameAction,
   handleDisconnect,
+  leaveRoom,
   getBindingBySocket,
   getSocketIdForPlayer,
   expireStaleRooms,

@@ -215,6 +215,46 @@ io.on('connection', (socket) => {
     }
   });
 
+  onAsync('leave_game', async ({ roomCode }) => {
+    if (!roomCode) return emitError(socket, 'Room code required');
+
+    const result = await gm.leaveRoom(roomCode, socket.id);
+    if (result.error) return emitError(socket, result.error);
+
+    socket.emit('left_game', { roomCode });
+    socket.leave(roomCode);
+
+    if (result.deleted) {
+      return;
+    }
+
+    if (result.players) {
+      broadcast(roomCode, 'room_updated', {
+        players: result.players,
+        hostId: result.hostId,
+      });
+      return;
+    }
+
+    if (result.bankruptPlayerId) {
+      broadcast(roomCode, 'bankruptcy_declared', {
+        playerId: result.bankruptPlayerId,
+        creditor: 'bank',
+      });
+    }
+
+    if (result.bankruptcyResult?.gameOver) {
+      broadcast(roomCode, 'game_over', {
+        winner: result.bankruptcyResult.winner,
+        leaderboard: buildLeaderboard(result.room.state),
+      });
+    }
+
+    if (result.room?.state) {
+      broadcastState(roomCode, result.room.state);
+    }
+  });
+
   onAsync('roll_dice', async ({ roomCode }) => {
     await runLockedGameAction(socket, roomCode, ({ state, playerId }) => {
       if (state.playerOrder[state.currentPlayerIndex] !== playerId) {

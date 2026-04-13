@@ -103,6 +103,19 @@ export default function App() {
       }
     });
 
+    socket.on('left_game', () => {
+      clearSession();
+      setScreen('home');
+      setRoomCode('');
+      setPlayerId('');
+      setPlayers([]);
+      setHostId('');
+      setGameState(null);
+      setRestoreError('');
+      socket.disconnect();
+      socket.connect();
+    });
+
     socket.on('error', ({ message }) => {
       if (message === 'Session not found' || message === 'Room expired' || message === 'Room not found') {
         clearSession();
@@ -128,21 +141,18 @@ export default function App() {
       socket.off('game_started');
       socket.off('state_update');
       socket.off('session_resumed');
+      socket.off('left_game');
       socket.off('error');
     };
   }, []);
 
   function leaveGame() {
-    clearSession();
-    setScreen('home');
-    setRoomCode('');
-    setPlayerId('');
-    setPlayers([]);
-    setHostId('');
-    setGameState(null);
-    setRestoreError('');
-    socket.disconnect();
-    socket.connect();
+    if (!roomCode) {
+      clearSession();
+      setScreen('home');
+      return;
+    }
+    socket.emit('leave_game', { roomCode });
   }
 
   if (screen === 'home') {
